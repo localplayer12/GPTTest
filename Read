@@ -1,0 +1,775 @@
+repeat wait() until game.Players.LocalPlayer.Character
+
+for i, v in ipairs(workspace.Map.Obby:GetDescendants()) do
+    if v:IsA("Part") and v.Color ~= Color3.fromRGB(86, 66, 54) and v.Parent.Name == "Floor" then
+        v.Size = Vector3.new(12, 1, 7)
+    end
+end
+
+local VirtualUser = game:GetService('VirtualUser')
+game:GetService('Players').LocalPlayer.Idled:connect(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new())
+end)
+
+getgenv().Loading = true
+
+if getgenv().Library then
+    getgenv().Library:Unload()
+end
+
+local repo = 'https://raw.githubusercontent.com/juywvm/ui-libs/main/Linoria_Lib/'
+local EST = {}
+
+getgenv().Library = loadstring(game:HttpGet('https://raw.githubusercontent.com/MercyfulSmoked/localhub/main/Library.lua'))()
+
+local ThemeManager = loadstring(game:HttpGet(repo .. 'addons/ThemeManager.lua'))()
+local SaveManager = loadstring(game:HttpGet(repo .. 'addons/SaveManager.lua'))()
+
+local Window = Library:CreateWindow({
+    Title = "Xeo | Sol's RNG";
+    Center = true;
+    AutoShow = true;
+})
+
+S = {
+    GettingBlessed = false;
+}
+
+local Tabs = {
+    Main = Window:AddTab('Main');
+    Misc = Window:AddTab('Misc');
+    UI = Window:AddTab('Crafting');
+    Auras = Window:AddTab('Auras');
+    ['Settings'] = Window:AddTab('Settings');
+}
+
+local Automation = Tabs.Main:AddLeftGroupbox('Automation')
+local Misc = Tabs.Misc:AddRightGroupbox('Misc')
+local AutoUse = Tabs.Misc:AddLeftGroupbox('Auto Use')
+local Cave = Tabs.Misc:AddLeftGroupbox('Cave')
+local UI = Tabs.UI:AddLeftGroupbox('Crafting')
+local Auras = Tabs.Auras:AddLeftGroupbox('Auras')
+local Storage = Tabs.Auras:AddRightGroupbox('Storage')
+local Crafting = Tabs.UI:AddRightGroupbox('Crafting')
+local Discord = Tabs.Settings:AddLeftGroupbox('Discord')
+local MenuGroup = Tabs.Settings:AddRightGroupbox('Menu')
+
+getgenv().Library.ToggleKeybind = Options.MenuKeybind
+
+ThemeManager:SetLibrary(getgenv().Library)
+SaveManager:SetLibrary(getgenv().Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({ 'MenuKeybind' })
+ThemeManager:SetFolder('MyScriptHub')
+SaveManager:SetFolder('MyScriptHub/specific-game')
+SaveManager:BuildConfigSection(Tabs['Settings'])
+ThemeManager:ApplyToTab(Tabs['Settings'])
+
+MenuGroup:AddButton('Unload', function() getgenv().Library:Unload() end)
+MenuGroup:AddLabel('Menu bind'):AddKeyPicker('MenuKeybind', { Default = 'Home', NoUI = true, Text = 'Menu keybind' })
+
+getgenv().Library.ToggleKeybind = Options.MenuKeybind
+
+local Players = game:GetService("Players")
+local lp = Players.LocalPlayer
+
+local Mouse = lp:GetMouse()
+local Camera = workspace.CurrentCamera
+
+function check()
+    if getgenv().Loading then
+        return true
+    else
+        return false
+    end
+end
+
+function getflag(flag)
+    if Toggles[flag] then
+        return Toggles[flag].Value
+    elseif Options[flag] then
+        return Options[flag].Value
+    end
+end
+
+function NearestDropped()
+    local closestPart
+    local minDistance = math.huge
+    for _, part in ipairs(workspace.DroppedItems:GetChildren()) do
+        local distance
+        if part:IsA("Model") and part:FindFirstChild('Casing') then
+            distance = (lp.Character.HumanoidRootPart.Position - part.Casing.Position).magnitude
+        elseif part:IsA("UnionOperation") then
+            distance = (lp.Character.HumanoidRootPart.Position - part.Position).magnitude
+        end
+        if distance and distance < minDistance and part and part.Parent ~= nil then
+            closestPart = part
+            minDistance = distance
+        end
+    end
+    return closestPart
+end
+
+local function cancelPath()
+    if path then
+        path:Cancel()
+        path = nil
+    end
+end
+
+function move(goal)
+    while getflag("ACT") or getflag("ABB") do
+        if not goal and not S.GettingBlessed then
+            print("No goal found. Cancelling path.")
+            cancelPath()
+            return
+        end
+
+        if not S.GettingBlessed and lp:DistanceFromCharacter(workspace.Map.BuffGivers["Basic Blessing"].Position) <= 30 then
+            wait(1)
+            return
+        end
+
+        local char = lp.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+        if not hrp or not hum then
+            return
+        end
+
+        local destination
+        if S.GettingBlessed then
+            destination = workspace.Map.BuffGivers["Basic Blessing"].Position
+        elseif goal:IsA("Model") or goal:IsA("UnionOperation") then
+            destination = goal.Position
+        else
+            print("Invalid goal type. Cancelling path.")
+            cancelPath()
+            return
+        end
+
+        if hum:GetState() == Enum.HumanoidStateType.FallingDown then
+            return
+        end
+
+        if S.GettingBlessed and destination ~= workspace.Map.BuffGivers["Basic Blessing"].Position then
+            return
+        end
+
+        local distance = (destination - hrp.Position).Magnitude
+        if distance <= 5 then
+            return
+        end
+
+        local path = game:GetService("PathfindingService"):CreatePath({
+            AgentRadius = 1,
+            AgentHeight = 5,
+            WaypointSpacing = 0.5
+        })
+
+        path:ComputeAsync(hrp.Position, destination)
+        local waypoints = path:GetWaypoints()
+
+        if #waypoints > 0 then
+            for i, waypoint in ipairs(waypoints) do
+                if not getflag("ACT") and not getflag("ABB") then
+                    cancelPath()
+                    return
+                end
+
+                if not S.GettingBlessed and (not goal or not goal:IsDescendantOf(game)) then
+                    print("Target object destroyed. Recomputing path.")
+                    cancelPath()
+                    return
+                end
+
+                if S.GettingBlessed and destination ~= workspace.Map.BuffGivers["Basic Blessing"].Position then
+                    return
+                end        
+
+                local nextwaypoint = waypoints[i + 1]
+                local doublenextwaypoint = waypoints[i + 2]
+                if waypoint then
+                    if waypoint.Action == Enum.PathWaypointAction.Jump then
+                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        task.wait(0.1)
+                        hum:MoveTo(waypoint.Position)
+                        
+                        repeat
+                            task.wait()
+                        until hum.FloorMaterial ~= Enum.Material.Air or not getflag("ACT")
+                        task.wait(0.2)
+                    else
+                        hrp.CFrame = CFrame.new(waypoint.Position)
+                        if nextwaypoint then
+                            local direction = (nextwaypoint.Position - hrp.Position).unit
+                            hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + Vector3.new(direction.X, 0, direction.Z)) + Vector3.new(0,4.5,0)
+                        end
+                        task.wait(0.028)
+                    end
+                end
+            end
+        end
+    end
+end
+
+function functions_AutoCollect(t)
+    if not t then
+        cancelPath()
+        return
+    end
+    
+    while task.wait() and getflag("ACT") do 
+        pcall(function()
+            local v = NearestDropped()
+            if v and v.Parent and v.Parent:IsDescendantOf(game) and not S.GettingBlessed then
+                local proximityPrompt
+                if v:IsA("Model") and v:FindFirstChild("Casing") then
+                    proximityPrompt = v.Casing:FindFirstChild("ProximityPrompt")
+                elseif v:IsA("UnionOperation") then
+                    proximityPrompt = v:FindFirstChild("ProximityPrompt")
+                end
+
+                if proximityPrompt then
+                    task.wait()
+                    local distance;
+                    if v:IsA("Model") and v:FindFirstChild("Casing") then
+                        distance = (v:FindFirstChild("Casing").Position - lp.Character.HumanoidRootPart.Position)
+                    elseif v:IsA("UnionOperation") then
+                        distance = (v.Position - lp.Character.HumanoidRootPart.Position)
+                    end;
+
+                    if distance.Magnitude <= 5 then
+                        fireproximityprompt(proximityPrompt)
+                    else
+                        if v:IsA("Model") and v.Casing then
+                            move(v.Casing)
+                        elseif v:IsA("UnionOperation") then
+                            move(v)
+                        end;
+                    end
+                end
+            end
+        end)
+    end
+end
+
+function functions_AutoBlessed(t)
+    if not t then
+        cancelPath()
+        return
+    end
+    
+    while task.wait() and getflag("ABB") do 
+        pcall(function()
+            local p = workspace.Map.BuffGivers["Basic Blessing"]
+            if p.Fog1.Enabled then
+                S.GettingBlessed = true
+                move(p)
+            else
+                S.GettingBlessed = false
+            end
+        end);
+    end
+end
+
+function functions_AutoUseCoin(t)
+    if not t then
+        return
+    end
+    
+    while task.wait() and getflag("AUC") do 
+        game:GetService("ReplicatedStorage").Modules.Inventory.UseItem:FireServer("Gilded Coin",1)
+        game:GetService("ReplicatedStorage").Modules.Inventory.UseItem:FireServer("Coin",1)
+    end
+end
+
+function functions_AutoUseLucky(t)
+    if not t then
+        return
+    end
+    
+    while task.wait() and getflag("AUL") do 
+        game:GetService("ReplicatedStorage").Modules.Inventory.UseItem:FireServer("Lucky Potion",1)
+    end
+end
+
+function functions_AutoUseSpeed(t)
+    if not t then
+        return
+    end
+    
+    while task.wait() and getflag("AUS") do 
+        game:GetService("ReplicatedStorage").Modules.Inventory.UseItem:FireServer("Speed Potion",1)
+    end
+end
+
+function functions_Join()
+    local Http = game:GetService("HttpService")
+    local TPS = game:GetService("TeleportService")
+    local Api = "https://games.roblox.com/v1/games/"
+    local _place = game.PlaceId
+    local _servers = Api.._place.."/servers/Public?sortOrder=Asc&limit=100"
+    
+    function ListServers(cursor)
+        local Raw = game:HttpGet(_servers .. ((cursor and "&cursor="..cursor) or ""))
+        return Http:JSONDecode(Raw)
+    end
+
+    local Server, Next
+    repeat
+        local Servers = ListServers(Next)
+        Server = Servers.data[1]
+        Next = Servers.nextPageCursor
+    until Server
+
+    TPS:TeleportToPlaceInstance(_place, Server.id, lp)
+end
+
+Automation:AddToggle('ACT', {
+    Text = 'Auto Collect';
+    Default = false;
+    Tooltip = 'Teleports to items on the ground and picks them up!';
+})
+
+Automation:AddToggle('ABB', {
+    Text = 'Auto Basic Blessing';
+    Default = false;
+    Tooltip = 'Works with Auto Collect!';
+})
+
+Toggles["ACT"]:OnChanged(function(v)
+    if check() then return end
+    functions_AutoCollect(getflag("ACT"))
+end)
+
+Toggles["ABB"]:OnChanged(function(v)
+    if check() then return end
+    functions_AutoBlessed(getflag("ABB"))
+end)
+
+AutoUse:AddToggle('AUC', {
+    Text = 'Auto Use (Coins)';
+    Default = false;
+    Tooltip = 'Uses Coins for you!';
+})
+
+AutoUse:AddToggle('AUL', {
+    Text = 'Auto Use (Lucky)';
+    Default = false;
+    Tooltip = 'Uses Lucky Potions for you!';
+})
+
+AutoUse:AddToggle('AUS', {
+    Text = 'Auto Use (Speed)';
+    Default = false;
+    Tooltip = 'Uses Speed Potions for you!';
+})
+
+Toggles["AUC"]:OnChanged(function(v)
+    if check() then return end
+    functions_AutoUseCoin(getflag("AUC"))
+end)
+
+Toggles["AUL"]:OnChanged(function(v)
+    if check() then return end
+    functions_AutoUseLucky(getflag("AUL"))
+end)
+
+Toggles["AUS"]:OnChanged(function(v)
+    if check() then return end
+    functions_AutoUseSpeed(getflag("AUS"))
+end)
+
+Cave:AddDropdown('Caver', {
+    Values = {"Enter","Leave"},
+    Default = 1,
+    Multi = false,
+
+    Text = 'Cave Teleportation',
+    Tooltip = 'Where to teleport',
+})
+
+function getcave()
+    local leave = game:GetService("Workspace").CaveMap.CaveExit.Teleporter
+    local enter = game:GetService("Workspace").Map.DirtMountain.WaterFallSmallCave.HiddenCaveTeleporter
+    if getflag("Caver") == "Enter" then
+        firetouchinterest(enter, lp.Character.Torso, 0)
+        wait(0.1)
+        firetouchinterest(enter, lp.Character.Torso, 1)
+    elseif getflag("Caver") == "Leave" then
+        firetouchinterest(leave, lp.Character.Torso, 0)
+        wait(0.1)
+        firetouchinterest(leave, lp.Character.Torso, 1)
+    end;
+end;
+
+Cave:AddButton("Teleport", function()
+    if check() then return end
+    getcave()
+end)
+
+Misc:AddButton("Server-Hop", function()
+    if check() then return end
+    functions_Join()
+end)
+
+Misc:AddButton("Rejoin", function()
+    if check() then return end
+    game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId)
+end)
+
+UI:AddButton("Crafting Menu", function()
+    if check() then return end
+    local shop = lp.PlayerGui.MainInterface.ShopFrame
+    shop.Visible = not shop.Visible
+end)
+UI:AddButton("Potion Crafting Menu", function()
+    if check() then return end
+    local shop = lp.PlayerGui.MainInterface["Stella\nPotionCraftingFrame"]
+    shop.Visible = not shop.Visible
+end)
+
+Crafting:AddToggle('ACGB', {
+    Text = 'Auto Craft Gear Basing';
+    Default = false;
+    Tooltip = 'Crafts Gear Basing for you!';
+})
+
+local RemoteFunction = game:GetService("Players").LocalPlayer.PlayerGui.MainInterface.RemoteFunction
+
+local ClientFunction = "Craft\n"..tostring(game.Players.LocalPlayer.UserId).."Client"
+local Clientid = game.Players.LocalPlayer.UserId
+local Client = RemoteFunction:FindFirstChild(ClientFunction)
+
+local Gearbasing = {"Good","Rare", "Uncommon","Common"}
+function craftgear(t)
+    if not t then return end
+    while getflag("ACGB") and task.wait(1) do 
+        for i,v in ipairs(Gearbasing) do 
+            if getflag("ACGB") then
+                Client:FireServer("Insert","Gear Basing",v)
+                wait(0.5)
+            end
+        end;
+        wait(0.5)
+        Client:FireServer("Craft","Gear Basing")
+    end;
+end;
+
+Toggles["ACGB"]:OnChanged(function(v)
+    if check() then return end
+    craftgear(getflag("ACGB"))
+end)
+
+Crafting:AddToggle('ACLG', {
+    Text = 'Auto Craft Luck Glove';
+    Default = false;
+    Tooltip = 'Crafts Luck Glove for you!';
+})
+
+local LuckGlove = {"Gear Basing","Divinus","Crystallized","Rare"}
+function craftluck(t)
+    print(t)
+    if not t then return end
+    print(t)
+    while getflag("ACLG") and task.wait(1) do 
+        
+        for i,v in ipairs(LuckGlove) do 
+            if getflag("ACLG") then
+                Client:FireServer("Insert","Luck Glove",v)
+                wait(0.5)
+            end
+        end;
+        wait(0.5)
+        Client:FireServer("Craft","Luck Glove")
+    end;
+end;
+
+
+Toggles["ACLG"]:OnChanged(function(v)
+    if check() then return end
+    craftluck(getflag("ACLG"))
+end)
+
+Crafting:AddToggle('ACLD', {
+    Text = 'Auto Craft Lunar Device';
+    Default = false;
+    Tooltip = 'Crafts Lunar Device for you!';
+})
+
+local Lunar = {"Gear Basing","Rare","Divinus","Lunar"}
+function craftlunar(t)
+    print(t)
+    if not t then return end
+    print(t)
+    while getflag("ACLD") and task.wait(1) do 
+        
+        for i,v in ipairs(LuckGlove) do 
+            if getflag("ACLD") then
+                Client:FireServer("Insert","Lunar Device",v)
+                wait(0.5)
+            end
+        end;
+        wait(0.5)
+        Client:FireServer("Craft","Lunar Device")
+    end;
+end;
+
+
+Toggles["ACLD"]:OnChanged(function(v)
+    if check() then return end
+    craftlunar(getflag("ACLD"))
+end)
+
+Crafting:AddToggle('ACSD', {
+    Text = 'Auto Craft Solar Device';
+    Default = false;
+    Tooltip = 'Crafts Solar Device for you!';
+})
+
+local Solar = {"Gear Basing","Solar","Divinus","Rare"}
+function craftsolar(t)
+    print(t)
+    if not t then return end
+    print(t)
+    while getflag("ACSD") and task.wait(1) do 
+        
+        for i,v in ipairs(LuckGlove) do 
+            if getflag("ACSD") then
+                Client:FireServer("Insert","Solar Device",v)
+                wait(0.5)
+            end
+        end;
+        wait(0.5)
+        Client:FireServer("Craft","Solar Device")
+    end;
+end;
+
+Toggles["ACSD"]:OnChanged(function(v)
+    if check() then return end
+    craftsolar(getflag("ACSD"))
+end)
+
+Crafting:AddToggle('ACE', {
+    Text = 'Auto Craft Eclipse';
+    Default = false;
+    Tooltip = 'Crafts Eclipse for you!';
+})
+
+local Eclipse = {"Gear Basing","Solar","Divinus","Rare"}
+function crafteclipse(t)
+    if not t then return end
+    while getflag("ACE") and task.wait(1) do 
+        
+        for i,v in ipairs(LuckGlove) do 
+            if getflag("ACE") then
+                Client:FireServer("Insert","Eclipse",v)
+                wait(0.5)
+            end
+        end;
+        wait(0.5)
+        Client:FireServer("Craft","Eclipse")
+    end;
+end;
+
+Toggles["ACE"]:OnChanged(function(v)
+    if check() then return end
+    crafteclipse(getflag("ACE"))
+end)
+
+Crafting:AddToggle('ACED', {
+    Text = 'Auto Craft Eclipse Device';
+    Default = false;
+    Tooltip = 'Crafts Eclipse for you!';
+})
+
+local EclipseD = {"Lunar Device","Solar Device","Eclipse"}
+function crafteclipsedevice(t)
+    print(t)
+    if not t then return end
+    print(t)
+    while getflag("ACED") and task.wait(1) do 
+        
+        for i,v in ipairs(LuckGlove) do 
+            if getflag("ACED") then
+                Client:FireServer("Insert","Eclipse Device",v)
+                wait(0.5)
+            end
+        end;
+        wait(0.5)
+        Client:FireServer("Craft","Eclipse Device")
+    end;
+end;
+
+Toggles["ACED"]:OnChanged(function(v)
+    if check() then return end
+    crafteclipsedevice(getflag("ACED"))
+end)
+
+Crafting:AddToggle('ACJG', {
+    Text = 'Auto Craft Jackpot Gauntlet';
+    Default = false;
+    Tooltip = 'Crafts Jackpot Gauntlet for you!';
+})
+
+local Jackpot = {"Gilded","Gear Basing","Rare","Jackpot"}
+function craftjackpot(t)
+    if not t then return end
+
+    while getflag("ACJG") and task.wait(1) do 
+        
+        for i,v in ipairs(LuckGlove) do 
+            if getflag("ACED") then
+                Client:FireServer("Insert","Jackpot Gauntlet",v)
+                wait(0.5)
+            end
+        end;
+        wait(0.5)
+        Client:FireServer("Craft","Jackpot Gauntlet")
+    end;
+end;
+
+
+Toggles["ACJG"]:OnChanged(function(v)
+    if check() then return end
+    craftjackpot(getflag("ACJG"))
+end)
+
+Crafting:AddToggle('ACEG', {
+    Text = 'Auto Craft Exo Gauntlet';
+    Default = false;
+    Tooltip = 'Crafts Exo Gauntlet for you!';
+})
+
+local Exo = {"Gear Basing","Gilded","Precious","Undead","Exotic"}
+function craftexo(t)
+    if not t then return end
+
+    while getflag("ACEG") and task.wait(1) do 
+        
+        for i,v in ipairs(LuckGlove) do 
+            if getflag("ACED") then
+                Client:FireServer("Insert","Exo Gauntlet",v)
+                wait(0.5)
+            end
+        end;
+        wait(0.5)
+        Client:FireServer("Craft","Exo Gauntlet")
+    end;
+end;
+
+
+Toggles["ACEG"]:OnChanged(function(v)
+    if check() then return end
+    craftexo(getflag("ACEG"))
+end)
+
+Crafting:AddToggle('ACGC', {
+    Text = 'Auto Craft Gilded';
+    Default = false;
+    Tooltip = 'Crafts Gilded Coins for you!';
+})
+
+function craftgilded(t)
+    if not t then return end
+
+    while getflag("ACGC") and task.wait(1) do 
+        
+        Client:FireServer("Insert","Gilded Coin","Gilded",Clientid)
+        wait(0.5)
+        Client:FireServer("Craft","Gilded Coin",Clientid)
+    end;
+end;
+
+Toggles["ACGC"]:OnChanged(function(v)
+    if check() then return end
+    craftgilded(getflag("ACGC"))
+end)
+
+function Upgrader(t)
+    if not t then return end
+
+    while getflag("AU") and task.wait(1) do 
+        game:GetService("ReplicatedStorage").Remotes.AuraStorage:FireServer("UpgradeStorage")
+    end;
+end;
+Storage:AddToggle('AU', {
+    Text = 'Auto Upgrade Storage';
+    Default = false;
+    Tooltip = 'Upgrades your storage for you so you can store more auras!';
+})
+
+Toggles["AU"]:OnChanged(function(v)
+    if check() then return end
+    Upgrader(getflag("AU"))
+end)
+
+
+Auras:AddToggle('RM1', {
+    Text = 'Remove over 1';
+    Default = false;
+    Tooltip = 'Removes the extra Auras so you only have one of each';
+})
+
+function RemoveAura(t)
+    if not t then return end
+
+    while getflag("RM1") and task.wait() do
+        local inventoryFrame = game:GetService("Players").LocalPlayer.PlayerGui.MainInterface.AuraInventory.InventoryFrame
+        local itemsHolder = inventoryFrame.ItemsHolder
+        local seen = {} -- Table to keep track of seen names
+    
+        for _, v in ipairs(itemsHolder:GetChildren()) do
+            if v.Name == "Template" then
+                for _, auraName in ipairs(v.BaseFrame:GetChildren()) do
+                    if auraName:IsA("TextLabel") then
+                        local name = auraName.Text
+                        if seen[name] then
+                            print("Duplicate found:", name)
+                            
+                        else
+                            seen[name] = true
+                        end
+                    end
+                end
+            end
+        end
+    end    
+    
+end;
+
+Toggles["RM1"]:OnChanged(function(v)
+    if check() then return end
+    RemoveAura(getflag("RM1"))
+end)
+
+Discord:AddButton("Join Discord!", function()
+    local INV_CODE = "5MNEQGDYkw"
+    local httpService = game:GetService("HttpService")
+    local httpRequest = http_request
+
+    local request = httpRequest({
+        Url = "http://127.0.0.1:6463/rpc?v=1",
+        Method = "POST",
+
+        Headers = {
+            ['Content-Type'] = 'application/json',
+            Origin = 'https://discord.com'
+        },
+
+        Body = httpService:JSONEncode({
+            args = {code = INV_CODE},
+            cmd = 'INVITE_BROWSER',
+            nonce = httpService:GenerateGUID(false)
+        })
+    })
+end)
+
+local ContextActionService = game:GetService("ContextActionService")
+
+
+
+getgenv().Loading = false
